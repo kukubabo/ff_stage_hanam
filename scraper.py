@@ -23,6 +23,35 @@ META_RE = re.compile(
 NTTNO_RE = re.compile(r'nttNo=(\d+)')
 SITE_BASE = 'https://www.hnart.or.kr'
 
+# 리스트 카드 제목 앞에 붙는 상태 뱃지(새글/핫이슈/공지 등). a 태그 text_content()
+# 폴백 사용 시 제목에서 제거해야 prefix 매칭이 깨지지 않는다.
+LIST_BADGES = ('새글', '핫이슈', '공지', 'NEW', 'HOT')
+# 제목 뒤에 붙는 메타데이터 '... 2026-06-27 조회 : 13' 패턴.
+LIST_TRAILER_RE = re.compile(
+    r'\s*\d{4}-\d{2}-\d{2}\s*(?:조회\s*[:：]\s*\d+\s*)?$'
+)
+
+
+def clean_list_title(text):
+    """리스트 카드 텍스트에서 선행 뱃지·후행 작성일/조회수를 제거한 제목.
+
+    제목 전용 노드를 못 찾았을 때의 폴백. a.text_content() 를 그대로 쓰면
+    '새글', '핫이슈' 뱃지와 '2026-06-27 조회 : 13' 메타데이터가 섞여
+    prefix 매칭(startswith)이 깨지므로 정리한다.
+    """
+    s = ' '.join((text or '').split()).strip()
+    changed = True
+    while changed:
+        changed = False
+        for badge in LIST_BADGES:
+            if s == badge:
+                return ''
+            if s.startswith(badge + ' '):
+                s = s[len(badge):].lstrip()
+                changed = True
+    s = LIST_TRAILER_RE.sub('', s)
+    return s.strip()
+
 
 def normalize_title(s):
     """NFKC 정규화 + 괄호 종류 통일(공백화) + 공백 정리."""
@@ -85,23 +114,41 @@ def parse_list_page(html_text):
             continue
         seen.add(nttNo)
 
-        # 제목 — a 태그의 텍스트(공백 정리)
-        raw_title = ' '.join((a.text_content() or '').split()).strip()
+        # 제목 — 카드 제목 노드(em.p-media__heading-text)를 우선 추출.
+        # a.text_content() 를 그대로 쓰면 '새글'/'핫이슈' 뱃지와 작성일·조회수가
+        # 섞여 prefix 매칭이 깨진다(신규글은 항상 '새글' 뱃지가 붙어 누락됨).
+        raw_title = ''
+        title_nodes = a.xpath(
+            './/*[contains(@class,"p-media__heading-text")]'
+            ' | .//*[contains(@class,"p-media__heading")]'
+        )
+        if title_nodes:
+            raw_title = ' '.join(
+                (title_nodes[0].text_content() or '').split()).strip()
+        if not raw_title:
+            # 폴백 — a 전체 텍스트에서 뱃지/메타데이터 제거
+            raw_title = clean_list_title(a.text_content() or '')
         if not raw_title:
             continue
 
-        # 작성일 — 주변 li 컨테이너의 텍스트에서 YYYY-MM-DD 추출
+        # 작성일 — 카드의 <time> 우선, 없으면 주변 컨테이너에서 YYYY-MM-DD
         posted_date = ''
-        container = a
-        for _ in range(4):
-            container = container.getparent()
-            if container is None:
-                break
-            txt = container.text_content() or ''
-            dm = re.search(r'(\d{4}-\d{2}-\d{2})', txt)
+        for tn in a.xpath('.//time'):
+            dm = re.search(r'(\d{4}-\d{2}-\d{2})', tn.text_content() or '')
             if dm:
                 posted_date = dm.group(1)
                 break
+        if not posted_date:
+            container = a
+            for _ in range(4):
+                container = container.getparent()
+                if container is None:
+                    break
+                txt = container.text_content() or ''
+                dm = re.search(r'(\d{4}-\d{2}-\d{2})', txt)
+                if dm:
+                    posted_date = dm.group(1)
+                    break
 
         rows.append({
             'nttNo': nttNo,
