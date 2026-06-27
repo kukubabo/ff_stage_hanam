@@ -1,0 +1,5 @@
+title: "스테이지 하남 공연 알림"
+version: "1.0.0"
+package_name: "stage_hanam"
+developer: "kukubabo"
+description: "하남문화재단 「스테이지 하남」 공지 자동 감지 및 포스터 OCR"

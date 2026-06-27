@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div>
+  <form id="form_search" class="form-inline" style="text-align:left">
+    <div class="container-fluid">
+      <div class="row show-grid">
+        <span class="col-md-6">
+          <select id="order" name="order" class="form-control form-control-sm">
+            <option value="desc">최근순</option>
+            <option value="asc">오래된순</option>
+          </select>
+          <select id="option1" name="option1" class="form-control form-control-sm">
+            <option value="all">상태 전체</option>
+            <option value="success">성공</option>
+            <option value="partial">부분 성공</option>
+            <option value="failure">실패</option>
+          </select>
+        </span>
+        <span class="col-md-6">
+          <input id="keyword" name="keyword" class="form-control form-control-sm w-75" type="text" placeholder="메시지 검색" aria-label="Search">
+          {{ macros.m_button_group([['globalSearchSearchBtn', '검색'], ['globalSearchResetBtn', '리셋']]) }}
+        </span>
+      </div>
+    </div>
+  </form>
+<div id='page1'></div>
+{{ macros.m_hr_head_top() }}
+{{ macros.m_row_start('0') }}
+{{ macros.m_col(2,  macros.m_strong('Job Key')) }}
+{{ macros.m_col(1,  macros.m_strong('상태')) }}
+{{ macros.m_col(1,  macros.m_strong('신규')) }}
+{{ macros.m_col(1,  macros.m_strong('조회')) }}
+{{ macros.m_col(3,  macros.m_strong('메시지')) }}
+{{ macros.m_col(2,  macros.m_strong('실행 시간')) }}
+{{ macros.m_col(2,  macros.m_strong('관리')) }}
+{{ macros.m_row_end() }}
+{{ macros.m_hr_head_bottom() }}
+<div id="list_div"></div>
+<div id='page2'></div>
+
+<script type="text/javascript">
+    let last_list_option = "{{arg['stage_hanam_item_last_list_option']}}";
+
+    $(document).ready(function(){
+      tmp = last_list_option.split('|');
+      if (tmp.length == 5) {
+        $("#order").val(tmp[0]);
+        $("#keyword").val(tmp[2]);
+        $("#option1").val(tmp[3]);
+        globalRequestSearch(tmp[1]);
+      } else {
+        globalRequestSearch('1');
+      }
+    });
+
+function make_list(data) {
+  str = '';
+  for (i in data) {
+    str += j_row_start();
+
+    str += j_col(2, data[i].job_key || '-');
+
+    let status_badge = '';
+    switch(data[i].status) {
+      case 'success':
+        status_badge = '<span class="badge badge-success">성공</span>';
+        break;
+      case 'partial':
+        status_badge = '<span class="badge badge-warning">부분 성공</span>';
+        break;
+      case 'failure':
+        status_badge = '<span class="badge badge-danger">실패</span>';
+        break;
+      default:
+        status_badge = '<span class="badge badge-secondary">' + (data[i].status || '대기') + '</span>';
+    }
+    str += j_col(1, status_badge);
+    str += j_col(1, (data[i].new_posts_count != null ? data[i].new_posts_count : '-'));
+    str += j_col(1, (data[i].total_checked != null ? data[i].total_checked : '-'));
+    str += j_col(3, data[i].message || '');
+    str += j_col(2, data[i].created_time);
+
+    tmp = '';
+    tmp += j_button('globalDbDeleteItemBtn', '삭제', {'id':data[i].id}, 'primary');
+    tmp += j_button('localInfoBtn', '정보', {'idx':i}, 'primary');
+    tmp = j_button_group(tmp);
+    str += j_col(2, tmp, 'center');
+
+    str += j_row_end();
+    if (i != data.length - 1) str += j_hr();
+  }
+  $("#list_div").html(str);
+}
+
+$("body").on('click', '#localInfoBtn', function(e) {
+  e.preventDefault();
+  let item = current_data.list[$(this).data('idx')];
+
+  let statusBadge = {
+    'success': '<span class="badge badge-success">성공</span>',
+    'partial': '<span class="badge badge-warning">부분 성공</span>',
+    'failure': '<span class="badge badge-danger">실패</span>',
+  }[item.status] || '<span class="badge badge-secondary">' + (item.status || '-') + '</span>';
+
+  let html = `
+    <table class="table table-sm table-bordered mb-3">
+      <tbody>
+        <tr><th style="width:25%">Job Key</th><td>${item.job_key || '-'}</td></tr>
+        <tr><th>상태</th><td>${statusBadge}</td></tr>
+        <tr><th>메시지</th><td>${item.message || '-'}</td></tr>
+        <tr><th>신규 공지</th><td>${item.new_posts_count != null ? item.new_posts_count : '-'}</td></tr>
+        <tr><th>총 조회</th><td>${item.total_checked != null ? item.total_checked : '-'}</td></tr>
+        <tr><th>실행 시간</th><td>${item.created_time || '-'}</td></tr>
+      </tbody>
+    </table>`;
+
+  if (item.result_data) {
+    try {
+      let rd = (typeof item.result_data === 'string') ? JSON.parse(item.result_data) : item.result_data;
+      html += `<h6>수행 상세</h6>`;
+      html += `<table class="table table-sm table-bordered mb-2">
+        <tbody>
+          <tr><th style="width:30%">조회 행 수</th><td>${rd.total_checked || 0}</td></tr>
+          <tr><th>제목 매칭</th><td>${rd.total_matched || 0}</td></tr>
+          <tr><th>신규 발견</th><td>${rd.new_found || 0}</td></tr>
+          <tr><th>DB 저장</th><td>${rd.created || 0}</td></tr>
+          <tr><th>알림 전송</th><td>${rd.notified || 0}</td></tr>
+          <tr><th>OCR 가용</th><td>${rd.ocr_available ? '✓' : '✗'} ${rd.ocr_probe_reason ? '— ' + rd.ocr_probe_reason : ''}</td></tr>
+        </tbody>
+      </table>`;
+      if (rd.titles && rd.titles.length > 0) {
+        html += `<h6>신규 공지 제목</h6><ul class="list-group list-group-flush">`;
+        for (let t of rd.titles) {
+          html += `<li class="list-group-item py-1">${t}</li>`;
+        }
+        html += `</ul>`;
+      }
+      if (rd.errors && rd.errors.length > 0) {
+        html += `<h6 class="mt-2">에러</h6><ul class="list-group list-group-flush">`;
+        for (let er of rd.errors) {
+          html += `<li class="list-group-item py-1">nttNo=${er.nttNo}: ${er.error}</li>`;
+        }
+        html += `</ul>`;
+      }
+    } catch(_) {
+      html += `<pre style="white-space:pre-wrap;">${item.result_data}</pre>`;
+    }
+  }
+
+  showModal(html, '실행 결과', false);
+});
+</script>
+
+</div>
+{% endblock %}

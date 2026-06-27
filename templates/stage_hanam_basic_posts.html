@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div>
+  <form id="form_search" class="form-inline" style="text-align:left">
+    <div class="container-fluid">
+      <div class="row show-grid">
+        <span class="col-md-6">
+          <select id="order" name="order" class="form-control form-control-sm">
+            <option value="desc">최근순</option>
+            <option value="asc">오래된순</option>
+          </select>
+          <select id="option1" name="option1" class="form-control form-control-sm">
+            <option value="all">OCR 전체</option>
+            <option value="ok">ok</option>
+            <option value="partial">partial</option>
+            <option value="unavailable">unavailable</option>
+            <option value="failed">failed</option>
+          </select>
+        </span>
+        <span class="col-md-6">
+          <input id="keyword" name="keyword" class="form-control form-control-sm w-75" type="text" placeholder="제목 검색" aria-label="Search">
+          {{ macros.m_button_group([['globalSearchSearchBtn', '검색'], ['globalSearchResetBtn', '리셋']]) }}
+        </span>
+      </div>
+    </div>
+  </form>
+<div id='page1'></div>
+{{ macros.m_hr_head_top() }}
+{{ macros.m_row_start('0') }}
+{{ macros.m_col(1,  macros.m_strong('nttNo')) }}
+{{ macros.m_col(5,  macros.m_strong('제목')) }}
+{{ macros.m_col(1,  macros.m_strong('작성일')) }}
+{{ macros.m_col(1,  macros.m_strong('조회')) }}
+{{ macros.m_col(1,  macros.m_strong('포스터')) }}
+{{ macros.m_col(1,  macros.m_strong('OCR')) }}
+{{ macros.m_col(2,  macros.m_strong('관리')) }}
+{{ macros.m_row_end() }}
+{{ macros.m_hr_head_bottom() }}
+<div id="list_div"></div>
+<div id='page2'></div>
+
+<script type="text/javascript">
+    let last_list_option = "{{arg['stage_hanam_item_last_list_option']}}";
+
+    $(document).ready(function(){
+      tmp = last_list_option.split('|');
+      if (tmp.length == 5) {
+        $("#order").val(tmp[0]);
+        $("#keyword").val(tmp[2]);
+        $("#option1").val(tmp[3]);
+        globalRequestSearch(tmp[1]);
+      } else {
+        globalRequestSearch('1');
+      }
+    });
+
+function ocrBadge(status) {
+  switch(status) {
+    case 'ok':          return '<span class="badge badge-success">ok</span>';
+    case 'partial':     return '<span class="badge badge-warning">partial</span>';
+    case 'unavailable': return '<span class="badge badge-secondary">unavailable</span>';
+    case 'failed':      return '<span class="badge badge-danger">failed</span>';
+    default:            return '<span class="badge badge-light">' + (status || '-') + '</span>';
+  }
+}
+
+function imgCount(item) {
+  try {
+    let urls = (typeof item.image_urls === 'string') ? JSON.parse(item.image_urls || '[]') : (item.image_urls || []);
+    return urls.length;
+  } catch(_) { return 0; }
+}
+
+function make_list(data) {
+  str = '';
+  for (i in data) {
+    str += j_row_start();
+
+    str += j_col(1, data[i].nttNo || '-');
+    let titleHtml = (data[i].title || '-');
+    if (data[i].detail_url) {
+      titleHtml = '<a href="' + data[i].detail_url + '" target="_blank" rel="noopener">' + titleHtml + '</a>';
+    }
+    str += j_col(5, titleHtml);
+    str += j_col(1, data[i].posted_date || '-');
+    str += j_col(1, (data[i].view_count != null ? data[i].view_count : '-'));
+    str += j_col(1, imgCount(data[i]) + '장');
+    str += j_col(1, ocrBadge(data[i].ocr_status));
+
+    tmp = '';
+    tmp += j_button('localInfoBtn', '정보', {'idx':i}, 'primary');
+    tmp += j_button('localReocrBtn', '재OCR', {'nttNo':data[i].nttNo}, 'warning');
+    tmp += j_button('globalDbDeleteItemBtn', '삭제', {'id':data[i].id}, 'primary');
+    tmp = j_button_group(tmp);
+    str += j_col(2, tmp, 'center');
+
+    str += j_row_end();
+    if (i != data.length - 1) str += j_hr();
+  }
+  $("#list_div").html(str);
+}
+
+$("body").on('click', '#localInfoBtn', function(e) {
+  e.preventDefault();
+  let item = current_data.list[$(this).data('idx')];
+
+  let urls = [];
+  try { urls = (typeof item.image_urls === 'string') ? JSON.parse(item.image_urls || '[]') : (item.image_urls || []); } catch(_) {}
+
+  let imgsHtml = '';
+  if (urls.length > 0) {
+    imgsHtml = '<div class="d-flex flex-wrap" style="gap:8px;">';
+    for (let u of urls) {
+      imgsHtml += '<a href="' + u + '" target="_blank" rel="noopener"><img src="' + u + '" style="max-width:240px;max-height:320px;border:1px solid #ddd;"></a>';
+    }
+    imgsHtml += '</div>';
+  } else {
+    imgsHtml = '<em>(포스터 없음)</em>';
+  }
+
+  let html = `
+    <table class="table table-sm table-bordered mb-3">
+      <tbody>
+        <tr><th style="width:20%">nttNo</th><td>${item.nttNo || '-'}</td></tr>
+        <tr><th>제목</th><td>${item.title || '-'}</td></tr>
+        <tr><th>작성자</th><td>${item.author || '-'}</td></tr>
+        <tr><th>작성일</th><td>${item.posted_date || '-'}</td></tr>
+        <tr><th>조회</th><td>${(item.view_count != null ? item.view_count : '-')}</td></tr>
+        <tr><th>OCR 상태</th><td>${ocrBadge(item.ocr_status)}</td></tr>
+        <tr><th>최초 감지</th><td>${item.first_seen_at || '-'}</td></tr>
+        <tr><th>알림 전송</th><td>${item.notified ? '✓' : '-'}</td></tr>
+        <tr><th>상세 링크</th><td>${item.detail_url ? '<a href="'+item.detail_url+'" target="_blank" rel="noopener">'+item.detail_url+'</a>' : '-'}</td></tr>
+      </tbody>
+    </table>
+    <h6>포스터</h6>
+    ${imgsHtml}
+    <h6 class="mt-3">OCR 텍스트</h6>
+    <pre style="white-space:pre-wrap; max-height:400px; overflow:auto; background:#f8f9fa; padding:8px;">${(item.ocr_text || '(없음)').replace(/</g,'&lt;')}</pre>
+  `;
+
+  showModal(html, '공지 상세', false);
+});
+
+$("body").on('click', '#localReocrBtn', function(e) {
+  e.preventDefault();
+  let nttNo = $(this).data('nttno');
+  if (nttNo === undefined) nttNo = $(this).data('nttNo');
+  if (!nttNo) { alert('nttNo 누락'); return; }
+  globalSendCommand('reocr', nttNo, '', '', function(ret) {
+    globalRequestSearch();
+  });
+});
+</script>
+
+</div>
+{% endblock %}
